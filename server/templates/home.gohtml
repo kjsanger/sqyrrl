@@ -2,13 +2,22 @@
 
 {{ $categories := .Categories }}
 {{ $items := .CategorisedItems }}
+{{ $login_url := .LoginURL }}
+{{ $logout_url := .LogoutURL }}
+{{ $authenticated := .Authenticated }}
 
 <div class="container">
     <div class="top-left-cell"><img src="/static/favicon-32x32.png" alt="Sqyrrl"></div>
 
     <div class="top-cell"><h2>Sqyrrl</h2></div>
 
-    <div class="top-right-cell">Version: {{ .Version}}</div>
+    <div class="top-right-cell">
+        {{ if $authenticated }}
+            <form method="post" action="{{ $logout_url }}"><button id="logout-button" type="submit">Logout</button></form>
+        {{ else }}
+            <form method="post" action="{{ $login_url }}"><button id="login-button" type="submit">Login</button></form>
+        {{ end }}
+    </div>
 
     <div class="main-cell">
         <hr/>

@@ -19,15 +19,20 @@ package server
 
 import (
 	"context"
-	"github.com/rs/xid"
-	"github.com/rs/zerolog/hlog"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
 	"io/fs"
 	"net/http"
 	"path"
 	"time"
 
 	"github.com/cyverse/go-irodsclient/irods/types"
+	"github.com/rs/xid"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/hlog"
 )
 
 // HandlerChain is a function that takes an http.Handler and returns a new http.Handler
@@ -45,17 +50,22 @@ func HandleHomePage(logger zerolog.Logger, index *ItemIndex) http.Handler {
 		logger.Trace().Msg("HomeHandler called")
 
 		requestPath := r.URL.Path
+		requestmethod := r.Method
 
-		if requestPath != "/" {
-			redirect := path.Join(EndpointAPI, requestPath)
+		if requestPath != "/" && requestmethod == "GET" {
+			redirect := path.Join(EndPointIRODS, requestPath)
 			logger.Trace().
 				Str("from", requestPath).
 				Str("to", redirect).
+				Str("method", requestmethod).
 				Msg("Redirecting to API")
 			http.Redirect(w, r, redirect, http.StatusPermanentRedirect)
 		}
 
 		type pageData struct {
+			LoginURL         string
+			LogoutURL        string
+			Authenticated    bool
 			Version          string
 			Categories       []string
 			CategorisedItems map[string][]Item
@@ -68,6 +78,9 @@ func HandleHomePage(logger zerolog.Logger, index *ItemIndex) http.Handler {
 		}
 
 		data := pageData{
+			LoginURL:         EndPointLogin,
+			LogoutURL:        EndPointLogout,
+			Authenticated:    false,
 			Version:          Version,
 			Categories:       cats,
 			CategorisedItems: catItems,
@@ -79,6 +92,110 @@ func HandleHomePage(logger zerolog.Logger, index *ItemIndex) http.Handler {
 				Str("tplName", tplName).
 				Msg("Failed to execute HTML template")
 		}
+	})
+}
+
+func cryptoRandString(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func setAuthCookie(w http.ResponseWriter, r *http.Request, name string, value string) {
+	c := &http.Cookie{
+		Name:     name,
+		Value:    value,
+		HttpOnly: true,
+		MaxAge:   int(time.Hour.Seconds()),
+		Secure:   r.TLS != nil,
+	}
+	http.SetCookie(w, c)
+}
+
+func HandleLogin(server *SqyrrlServer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := server.logger
+		logger.Trace().Msg("LoginHandler called")
+
+		w.Header().Add("Cache-Control", "no-cache") // See https://github.com/okta/samples-golang/issues/20
+
+		state, err := cryptoRandString(16)
+		if err != nil {
+			writeErrorResponse(logger, w, http.StatusInternalServerError)
+			return
+		}
+		setAuthCookie(w, r, "state", state)
+
+		authURL := server.oauth2Config.AuthCodeURL(state)
+		logger.Info().
+			Str("auth_url", authURL).
+			Str("state", state).
+			Msg("Redirecting to auth URL")
+
+		http.Redirect(w, r, authURL, http.StatusFound)
+	})
+}
+
+func HandleAuthCallback(server *SqyrrlServer) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := server.logger
+		logger.Trace().Msg("AuthCallbackHandler called")
+
+		state, err := r.Cookie("state")
+		if err != nil {
+			logger.Err(err).Msg("Failed to get state cookie")
+			writeErrorResponse(logger, w, http.StatusBadRequest)
+			return
+		}
+		if r.URL.Query().Get("state") != state.Value {
+			logger.Error().Msg("Response state did not match state cookie")
+			writeErrorResponse(logger, w, http.StatusBadRequest)
+			return
+		}
+
+		// If implementing PKCE, change here to add a verifier
+		oauthToken, err := server.oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
+		if err != nil {
+			logger.Err(err).Msg("Failed to exchange code for token")
+			writeErrorResponse(logger, w, http.StatusInternalServerError)
+			return
+		}
+
+		logger.Info().
+			Str("token", oauthToken.AccessToken).
+			Msg("Successfully exchanged code for token")
+
+		userInfo, err := server.provider.UserInfo(context.Background(), oauth2.StaticTokenSource(oauthToken))
+		if err != nil {
+			logger.Err(err).Msg("Failed to get userinfo")
+			writeErrorResponse(logger, w, http.StatusInternalServerError)
+			return
+		}
+
+		resp := struct {
+			OAuth2Token *oauth2.Token
+			UserInfo    *oidc.UserInfo
+		}{oauthToken,
+			userInfo,
+		}
+
+		data, err := json.MarshalIndent(resp, "", "    ")
+		if err != nil {
+			logger.Err(err).Msg("Failed to marshal response")
+			writeErrorResponse(logger, w, http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(data)
+	})
+}
+
+func HandleLogout(logger zerolog.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger.Trace().Msg("LogoutHandler called")
+
 	})
 }
 

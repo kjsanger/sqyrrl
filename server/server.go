@@ -34,6 +34,9 @@ import (
 
 	_ "crypto/tls" // Leave this to ensure that the TLS package is linked
 
+	"github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
+
 	"github.com/cyverse/go-irodsclient/fs"
 	"github.com/cyverse/go-irodsclient/icommands"
 	"github.com/cyverse/go-irodsclient/irods/types"
@@ -46,13 +49,16 @@ type ContextKey string
 // SqyrrlServer is an HTTP server which contains an embedded iRODS client.
 type SqyrrlServer struct {
 	http.Server
-	config  Config
-	context context.Context                        // Context for clean shutdown
-	cancel  context.CancelFunc                     // Cancel function for the server
-	logger  zerolog.Logger                         // Base logger from which the server creates its own sub-loggers
-	manager *icommands.ICommandsEnvironmentManager // iRODS manager for the embedded client
-	account *types.IRODSAccount                    // iRODS account for the embedded client
-	index   *ItemIndex                             // ItemIndex of items in the iRODS server
+	sqyrrlConfig Config
+	oidcConfig   *oidc.Config
+	oauth2Config *oauth2.Config
+	provider     *oidc.Provider
+	context      context.Context                        // Context for clean shutdown
+	cancel       context.CancelFunc                     // Cancel function for the server
+	logger       zerolog.Logger                         // Base logger from which the server creates its own sub-loggers
+	manager      *icommands.ICommandsEnvironmentManager // iRODS manager for the embedded client
+	account      *types.IRODSAccount                    // iRODS account for the embedded client
+	index        *ItemIndex                             // ItemIndex of items in the iRODS server
 }
 
 type Config struct {
@@ -103,16 +109,15 @@ func init() {
 // sub-loggers for its components.
 func NewSqyrrlServer(logger zerolog.Logger, config Config) (server *SqyrrlServer, err error) { // NRV
 	if config.Host == "" {
-		return nil, fmt.Errorf("server config %w: host", ErrMissingArgument)
+		return nil, fmt.Errorf("server sqyrrlConfig %w: host", ErrMissingArgument)
 	}
 	if config.Port == "" {
-		return nil, fmt.Errorf("server config %w: port", ErrMissingArgument)
+		return nil, fmt.Errorf("server sqyrrlConfig %w: port", ErrMissingArgument)
 	}
 	if config.CertFilePath == "" {
 		return nil,
-			fmt.Errorf("server config %w: certificate file path", ErrMissingArgument)
+			fmt.Errorf("server sqyrrlConfig %w: certificate file path", ErrMissingArgument)
 	}
-
 	if config.IndexInterval < MinIndexInterval {
 		logger.Warn().
 			Dur("interval", config.IndexInterval).
@@ -137,6 +142,30 @@ func NewSqyrrlServer(logger zerolog.Logger, config Config) (server *SqyrrlServer
 	subLogger := logger.With().
 		Str("hostname", hostname).
 		Str("component", "server").Logger()
+
+	clientID := os.Getenv("CLIENT_ID")
+	clientSecret := os.Getenv("CLIENT_SECRET")
+
+	provider, err := oidc.NewProvider(context.Background(), "https://dev-75941879.okta.com")
+	if err != nil {
+		return nil, err
+	}
+
+	oidcConfig := &oidc.Config{
+		ClientID: clientID,
+	}
+	oauth2Config := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint:     provider.Endpoint(),
+		RedirectURL:  "https://" + net.JoinHostPort("localhost", config.Port) + EndpointAuthCallback,
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+	}
+
+	logger.Info().
+		Str("auth_url", provider.Endpoint().AuthURL).
+		Str("redirect_url", oauth2Config.RedirectURL).
+		Msg("OIDC provider configured")
 
 	var manager *icommands.ICommandsEnvironmentManager
 	if config.EnvFilePath == "" {
@@ -175,6 +204,9 @@ func NewSqyrrlServer(logger zerolog.Logger, config Config) (server *SqyrrlServer
 				return serverCtx
 			}},
 		config,
+		oidcConfig,
+		oauth2Config,
+		provider,
 		serverCtx,
 		cancelServer,
 		subLogger,
@@ -226,16 +258,16 @@ func (server *SqyrrlServer) Start() error {
 		// given as relative paths. We don't abort on errors here because it's cleaner
 		// to allow the server to try to start and clean up any resulting error in one
 		// place.
-		absCertFilePath, err := filepath.Abs(server.config.CertFilePath)
+		absCertFilePath, err := filepath.Abs(server.sqyrrlConfig.CertFilePath)
 		if err != nil {
 			logger.Err(err).
-				Str("path", server.config.CertFilePath).
+				Str("path", server.sqyrrlConfig.CertFilePath).
 				Msg("Failed to get the absolute path of the certificate file")
 		}
-		absKeyFilePath, err := filepath.Abs(server.config.KeyFilePath)
+		absKeyFilePath, err := filepath.Abs(server.sqyrrlConfig.KeyFilePath)
 		if err != nil {
 			logger.Err(err).
-				Str("path", server.config.KeyFilePath).
+				Str("path", server.sqyrrlConfig.KeyFilePath).
 				Msg("Failed to get the absolute path of the key file")
 		}
 
@@ -299,12 +331,12 @@ func (server *SqyrrlServer) setUpIndexing() (err error) { // NRV
 	}
 
 	// Query the iRODS server for items at regular intervals
-	itemChan := queryAtIntervals(logger, server.context, server.config.IndexInterval,
+	itemChan := queryAtIntervals(logger, server.context, server.sqyrrlConfig.IndexInterval,
 		func() ([]Item, error) {
 			return findItems(filesystem)
 		})
 
-	logger.Info().Dur("interval", server.config.IndexInterval).Msg("Indexing started")
+	logger.Info().Dur("interval", server.sqyrrlConfig.IndexInterval).Msg("Indexing started")
 
 	// Create an index of items. This goroutine updates the index from the item
 	// channel. It is the only goroutine that receives from the channel and the only
@@ -345,19 +377,19 @@ func (server *SqyrrlServer) waitAndShutdown() (err error) { // NRV
 
 func ConfigureAndStart(logger zerolog.Logger, config Config) error {
 	if config.Host == "" {
-		return fmt.Errorf("server config %w: address", ErrMissingArgument)
+		return fmt.Errorf("server sqyrrlConfig %w: address", ErrMissingArgument)
 	}
 	if config.Port == "" {
-		return fmt.Errorf("server config %w: port", ErrMissingArgument)
+		return fmt.Errorf("server sqyrrlConfig %w: port", ErrMissingArgument)
 	}
 	if config.CertFilePath == "" {
-		return fmt.Errorf("server config %w: certificate file path", ErrMissingArgument)
+		return fmt.Errorf("server sqyrrlConfig %w: certificate file path", ErrMissingArgument)
 	}
 	if config.KeyFilePath == "" {
-		return fmt.Errorf("server config %w: key file path", ErrMissingArgument)
+		return fmt.Errorf("server sqyrrlConfig %w: key file path", ErrMissingArgument)
 	}
 	if !(config.IndexInterval > 0) {
-		return fmt.Errorf("server config %w: index interval", ErrMissingArgument)
+		return fmt.Errorf("server sqyrrlConfig %w: index interval", ErrMissingArgument)
 	}
 
 	var server *SqyrrlServer

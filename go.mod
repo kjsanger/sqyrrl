@@ -3,6 +3,7 @@ module sqyrrl
 go 1.22
 
 require (
+	github.com/alexedwards/scs/v2 v2.8.0
 	github.com/coreos/go-oidc/v3 v3.10.0
 	github.com/cyverse/go-irodsclient v0.14.4
 	github.com/microcosm-cc/bluemonday v1.0.26

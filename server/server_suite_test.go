@@ -43,8 +43,8 @@ var (
 	account *types.IRODSAccount
 	irodsFS *fs.FileSystem
 
-	iRODSEnvFilePath  = "testdata/sqyrrlConfig/test_irods_environment.json"
-	iRODSAuthFilePath = "testdata/sqyrrlConfig/test_auth_file"
+	iRODSEnvFilePath  = "testdata/config/test_irods_environment.json"
+	iRODSAuthFilePath = "testdata/config/test_auth_file"
 	iRODSPassword     = "irods"
 )
 

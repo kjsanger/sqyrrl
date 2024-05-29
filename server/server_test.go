@@ -23,7 +23,7 @@ var _ = Describe("Server startup and shutdown", func() {
 		// Test server configuration uses a self-signed certificate for localhost and
 		// respected the IRODS_ENVIRONMENT_FILE environment variable to determine the
 		// test iRODS server to use.
-		configDir := filepath.Join("testdata", "sqyrrlConfig")
+		configDir := filepath.Join("testdata", "config")
 		config = server.Config{
 			Host:          host,
 			Port:          port,

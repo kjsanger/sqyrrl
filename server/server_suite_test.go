@@ -133,7 +133,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	currentUsers := make(map[string]struct{})
 
 	var users []*types.IRODSUser
-	users, err = ifs.ListUsers(suiteConn)
+	users, err = ifs.ListUsers(suiteConn, testZone)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, u := range users {
@@ -143,7 +143,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	for _, userName := range testUsers {
 		user := server.ParseUser(userName)
 		if _, ok := currentUsers[user.Name]; !ok {
-			err = ifs.CreateUser(suiteConn, user.Name, user.Zone, string(types.IRODSUserRodsUser))
+			err = ifs.CreateUser(suiteConn, user.Name, user.Zone, types.IRODSUserRodsUser)
 			Expect(err).NotTo(HaveOccurred())
 		}
 	}
@@ -152,7 +152,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	currentGroups := make(map[string]struct{})
 
 	var groups []*types.IRODSUser
-	groups, err = ifs.ListGroups(suiteConn)
+	groups, err = ifs.ListUsersByType(suiteConn, types.IRODSUserRodsGroup, testZone)
 	Expect(err).NotTo(HaveOccurred())
 
 	for _, group := range groups {
@@ -162,7 +162,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	for _, groupName := range testGroups {
 		group := server.ParseUser(groupName)
 		if _, ok := currentGroups[group.Name]; !ok {
-			err = ifs.CreateGroup(suiteConn, group.Name, string(types.IRODSUserRodsGroup))
+			err = ifs.CreateUser(suiteConn, group.Name, group.Zone, types.IRODSUserRodsGroup)
 			Expect(err).NotTo(HaveOccurred())
 		}
 	}
@@ -174,7 +174,14 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 
 	setGroupMembership := func(conn *connection.IRODSConnection, userName, groupName string, isMember bool) {
 		user := server.ParseUser(userName)
+		if user.Zone == "" {
+			user.Zone = testZone
+		}
 		group := server.ParseUser(groupName)
+		if group.Zone == "" {
+			group.Zone = testZone
+		}
+
 		inGroup, err := server.UserInGroup(suiteLogger, irodsFS, user, group)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -190,7 +197,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 		}
 	}
 
-	setGroupMembership(suiteConn, userInPublic, server.IRODSPublicGroup, true)
+	// setGroupMembership(suiteConn, userInPublic, server.IRODSPublicGroup, true)
 	setGroupMembership(suiteConn, userNotInPublic, server.IRODSPublicGroup, false)
 	setGroupMembership(suiteConn, userNotInPublic, populatedGroup, true)
 	for _, group := range otherGroups {
@@ -204,7 +211,15 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 
 	checkGroupMembership := func(fs *fs.FileSystem, userName, groupName string, shouldBeMember bool) {
 		user := server.ParseUser(userName)
+		if user.Zone == "" {
+			user.Zone = testZone
+		}
+
 		group := server.ParseUser(groupName)
+		if group.Zone == "" {
+			group.Zone = testZone
+		}
+
 		inGroup, err := server.UserInGroup(suiteLogger, fs, user, group)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(inGroup).To(Equal(shouldBeMember))

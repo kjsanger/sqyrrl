@@ -101,7 +101,7 @@ func newMockAuthoriser(userNames, groupNames []string, membership map[string][]s
 }
 
 // ListUsers returns a list of all users in the mock authoriser. It never returns an error.
-func (m *mockAuthoriser) ListUsers() ([]*types.IRODSUser, error) {
+func (m *mockAuthoriser) ListUsers(_ string, _ types.IRODSUserType) ([]*types.IRODSUser, error) {
 	var users []*types.IRODSUser
 	for _, user := range m.users {
 		users = append(users, user)
@@ -110,15 +110,15 @@ func (m *mockAuthoriser) ListUsers() ([]*types.IRODSUser, error) {
 }
 
 // ListGroupUsers returns a list of all users in the given group. It never returns an error.
-func (m *mockAuthoriser) ListGroupUsers(group string) ([]*types.IRODSUser, error) {
+func (m *mockAuthoriser) ListGroupMembers(_ string, groupName string) ([]*types.IRODSUser, error) {
 	var groupUsers []*types.IRODSUser
 
 	// Handle unqualified group names
-	if !strings.Contains(group, "#") {
-		group = group + "#" + m.zone
+	if !strings.Contains(groupName, "#") {
+		groupName = groupName + "#" + m.zone
 	}
 
-	if userNames, ok := m.membership[group]; ok {
+	if userNames, ok := m.membership[groupName]; ok {
 		for _, userName := range userNames {
 			if user, ok := m.users[userName]; ok {
 				groupUsers = append(groupUsers, user)
@@ -253,7 +253,7 @@ var _ = Describe("iRODS functions", func() {
 		localPath = filepath.Join("testdata", testFile)
 		remotePath = path.Join(workColl, testFile)
 
-		_, err = irodsFS.UploadFile(localPath, remotePath, "", false, true, true, nil)
+		_, err = irodsFS.UploadFile(localPath, remotePath, "", false, true, true, true, nil)
 		Expect(err).NotTo(HaveOccurred())
 
 		conn, err = irodsFS.GetIOConnection()

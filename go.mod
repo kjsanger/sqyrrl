@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/alexedwards/scs/v2 v2.8.0
 	github.com/coreos/go-oidc/v3 v3.12.0
-	github.com/cyverse/go-irodsclient v0.15.7-0.20241106203458-0b74740d1c86
+	github.com/cyverse/go-irodsclient v0.16.0
 	github.com/microcosm-cc/bluemonday v1.0.26
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
@@ -47,4 +47,4 @@ require (
 )
 
 // replace github.com/cyverse/go-irodsclient => ../go-irodsclient
-replace github.com/cyverse/go-irodsclient => github.com/wtsi-npg/go-irodsclient v0.0.0-20250110165023-801d97d497e6
+// replace github.com/cyverse/go-irodsclient => github.com/wtsi-npg/go-irodsclient v0.0.0-20250110165023-801d97d497e6

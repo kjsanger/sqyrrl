@@ -42,10 +42,10 @@ func ParseUser(name string) types.IRODSUser {
 // implementation of Authoriser can be used.
 type Authoriser interface {
 	// ListUsers returns a list of all iRODS users.
-	ListUsers() ([]*types.IRODSUser, error)
+	ListUsers(zoneName string, userType types.IRODSUserType) ([]*types.IRODSUser, error)
 
-	// ListGroupUsers returns a list of all users in the given iRODS group.
-	ListGroupUsers(group string) ([]*types.IRODSUser, error)
+	// ListGroupMembers returns a list of all users in the given iRODS group.
+	ListGroupMembers(zoneName string, groupName string) ([]*types.IRODSUser, error)
 
 	// ListACLs returns an iRODS access control list for the given path.
 	ListACLs(path string) ([]*types.IRODSAccess, error)
@@ -232,14 +232,18 @@ func IsReadableByUser(logger zerolog.Logger, authoriser Authoriser,
 	var users []*types.IRODSUser
 
 	localUserExists := false
-	if users, err = authoriser.ListUsers(); err != nil {
-		return false, err
-	}
 
-	for _, u := range users {
-		if u.Name == user.Name && u.Zone == user.Zone {
-			localUserExists = true
-			break
+USER:
+	for _, userType := range []types.IRODSUserType{types.IRODSUserRodsUser, types.IRODSUserRodsAdmin, types.IRODSUserGroupAdmin} {
+		if users, err = authoriser.ListUsers(localZone, userType); err != nil {
+			return false, err
+		}
+
+		for _, u := range users {
+			if u.Name == user.Name && u.Zone == user.Zone {
+				localUserExists = true
+				break USER
+			}
 		}
 	}
 
@@ -330,7 +334,7 @@ func IsReadableByUser(logger zerolog.Logger, authoriser Authoriser,
 func UserInGroup(logger zerolog.Logger, authoriser Authoriser,
 	user types.IRODSUser, group types.IRODSUser) (_ bool, err error) {
 	var groupMembers []*types.IRODSUser
-	if groupMembers, err = authoriser.ListGroupUsers(group.Name); err != nil {
+	if groupMembers, err = authoriser.ListGroupMembers(group.Zone, group.Name); err != nil {
 		return false, err
 	}
 

@@ -51,7 +51,7 @@ var _ = Describe("iRODS Get Handler", func() {
 		localPath = filepath.Join("testdata", testFile)
 		remotePath = path.Join(workColl, testFile)
 
-		_, err = irodsFS.UploadFile(localPath, remotePath, "", false, true, true, nil)
+		_, err = irodsFS.UploadFile(localPath, remotePath, "", false, true, true, true, nil)
 		Expect(err).NotTo(HaveOccurred())
 	}, NodeTimeout(time.Second*5))
 
